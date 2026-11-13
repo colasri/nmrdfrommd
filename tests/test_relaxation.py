@@ -1,5 +1,7 @@
 import numpy as np
-from nmrdfrommd.relaxation import compute_relaxation_rates, compute_relaxation_times
+
+from nmrdfrommd.relaxation import compute_relaxation_rates
+from nmrdfrommd.units import ANGSTROM_TO_M
 
 
 def test_isotropic_constant_density_gives_equal_R1_R2():
@@ -10,6 +12,7 @@ def test_isotropic_constant_density_gives_equal_R1_R2():
     R1, R2 = compute_relaxation_rates(f, J, K=1.0, isotropic=True)
 
     np.testing.assert_allclose(R1, R2)
+
 
 def test_isotropic_linear_density_matches_closed_form():
     """For exactly linear J0(f), extrapolation is exact, giving a closed
@@ -27,6 +30,7 @@ def test_isotropic_linear_density_matches_closed_form():
 
     np.testing.assert_allclose(R1, R1_expected, rtol=1e-10)
     np.testing.assert_allclose(R2, R2_expected, rtol=1e-10)
+
 
 def test_anisotropic_linear_density_matches_closed_form():
     """Same idea, exercising the dim=3 branch."""
@@ -46,6 +50,7 @@ def test_anisotropic_linear_density_matches_closed_form():
     np.testing.assert_allclose(R1, R1_expected, rtol=1e-10)
     np.testing.assert_allclose(R2, R2_expected, rtol=1e-10)
 
+
 def test_zero_frequency_term_uses_nearest_value_not_first_index():
     """R2's constant term must anchor on the frequency nearest to zero,
     not silently assume f[0] == 0 (regression test for the find_nearest fix)."""
@@ -61,3 +66,24 @@ def test_zero_frequency_term_uses_nearest_value_not_first_index():
     R2_expected = prefactor * (3 / 2 * J0_at_zero + 5 / 2 * (a + b * f) + J02) / 6
 
     np.testing.assert_allclose(R2, R2_expected, rtol=1e-10)
+
+
+def test_isotropic_R1_matches_closed_form_for_lorentzian_density():
+    """For a Lorentzian J(f), R1 = (J(f) + 4 J(2f)) / 6 wherever J(2f) is sampled.
+
+    Unlike the linear densities above, a Lorentzian is curved, so linear
+    extrapolation would not be exact. Only frequencies up to f_max / 2 are
+    compared: above that, J(2f) is outside the sampled range.
+    """
+
+    def lorentzian(f, f_c=2.0):
+        return 1 / (1 + (f / f_c) ** 2)
+
+    f = np.linspace(0, 10, 1001)
+    K = ANGSTROM_TO_M**6  # makes the prefactor of compute_relaxation_rates equal to 1
+
+    R1, _ = compute_relaxation_rates(f, lorentzian(f)[np.newaxis, :], K, isotropic=True)
+
+    expected = (lorentzian(f) + 4 * lorentzian(2 * f)) / 6
+    sampled = 2 * f <= f.max()
+    np.testing.assert_allclose(R1[sampled], expected[sampled], rtol=1e-3)
